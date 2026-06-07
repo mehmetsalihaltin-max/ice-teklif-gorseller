@@ -29,7 +29,8 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup("api/docs", app, document);
 
-  const port = Number(process.env.API_PORT ?? 3001);
+  // Bulut sağlayıcıları (Render vb.) portu PORT ile verir; yerelde API_PORT.
+  const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3001);
   await app.listen(port);
   console.log(`🚀 TİGNAL API çalışıyor: http://localhost:${port}/api`);
   console.log(`📚 Swagger: http://localhost:${port}/api/docs`);

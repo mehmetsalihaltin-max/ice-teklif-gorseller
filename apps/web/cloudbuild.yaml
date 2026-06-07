@@ -1,0 +1,19 @@
+# TİGNAL Web imajını monorepo kökünden derler.
+# NEXT_PUBLIC_API_URL derleme anında gömülür; deploy edilen API adresini verin.
+# Kullanım:
+#   gcloud builds submit --config apps/web/cloudbuild.yaml \
+#     --substitutions _IMAGE=REGION-docker.pkg.dev/PROJECT/tignal/web:latest,_API_URL=https://API-URL .
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-f"
+      - "apps/web/Dockerfile"
+      - "--build-arg"
+      - "NEXT_PUBLIC_API_URL=${_API_URL}"
+      - "-t"
+      - "${_IMAGE}"
+      - "."
+images: ["${_IMAGE}"]
+options:
+  machineType: "E2_HIGHCPU_8"

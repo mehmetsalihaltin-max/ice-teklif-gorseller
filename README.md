@@ -55,6 +55,20 @@ Varsayılan giriş (seed): `admin@tignal.local` / `Admin1234!`
 - API: http://localhost:3001/api
 - Swagger: http://localhost:3001/api/docs
 
+## Yayına Alma (Deploy)
+
+Uygulama **Google Cloud Run** için container olarak hazırdır (API + Web ayrı
+servisler, PostgreSQL Neon/Cloud SQL). Tek komutla:
+
+```bash
+export DATABASE_URL="postgresql://...";
+export JWT_ACCESS_SECRET="$(openssl rand -hex 32)"
+export JWT_REFRESH_SECRET="$(openssl rand -hex 32)"
+bash deploy/cloudrun.sh
+```
+
+Ayrıntılar ve manuel adımlar için **[DEPLOY.md](./DEPLOY.md)**.
+
 ## Komutlar
 
 | Komut | Açıklama |
