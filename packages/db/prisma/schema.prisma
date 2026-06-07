@@ -1,0 +1,715 @@
+// TİGNAL veri modeli — sistemin omurgası.
+// Para alanları Decimal(18,4) olarak saklanır (asla float). Para birimi varsayılan TRY.
+// Her üst seviye varlıkta companyId bulunur (ileride çok firmalı SaaS'a hazırlık).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/* ============================ ENUM'lar ============================ */
+
+enum Role {
+  ADMIN
+  STAFF
+  DEALER
+}
+
+enum CariSahipTipi {
+  CUSTOMER
+  DEALER
+  SUPPLIER
+}
+
+enum CariYon {
+  DEBIT // borç (bizim açımızdan alacak azalır / müşteri borçlanır)
+  CREDIT // alacak
+}
+
+enum CariRefTipi {
+  INVOICE
+  PAYMENT
+  PURCHASE
+  MANUAL
+  OPENING
+}
+
+enum MusteriTipi {
+  INDIVIDUAL
+  CORPORATE
+}
+
+enum LeadDurumu {
+  NEW
+  CONTACTED
+  QUALIFIED
+  WON
+  LOST
+}
+
+enum AktiviteTipi {
+  CALL
+  EMAIL
+  MEETING
+  NOTE
+  TASK
+}
+
+enum StokHareketTipi {
+  PURCHASE_IN
+  SALE_OUT
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  RETURN_IN
+  RETURN_OUT
+}
+
+enum BelgeRefTipi {
+  PURCHASE_ORDER
+  SALES_ORDER
+  INVOICE
+  MANUAL
+}
+
+enum FiyatListesiTipi {
+  RETAIL
+  DEALER
+  CUSTOM
+}
+
+enum SatinalmaDurumu {
+  DRAFT
+  ORDERED
+  RECEIVED
+  CANCELLED
+}
+
+enum SatisKanali {
+  POS
+  DEALER_PORTAL
+  MANUAL
+}
+
+enum SatisDurumu {
+  DRAFT
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum FaturaTipi {
+  SATIS
+  IADE
+}
+
+enum EFaturaBelgeTipi {
+  EFATURA
+  EARSIV
+}
+
+enum EFaturaProfili {
+  TEMELFATURA
+  TICARIFATURA
+  EARSIVFATURA
+}
+
+enum EFaturaDurumu {
+  NONE
+  QUEUED
+  SENT
+  ACCEPTED
+  REJECTED
+  ERROR
+}
+
+enum KasaTipi {
+  CASH
+  BANK
+}
+
+enum OdemeYonu {
+  INCOMING
+  OUTGOING
+}
+
+enum OdemeYontemi {
+  CASH
+  BANK
+  CARD
+  CHEQUE
+}
+
+/* ======================= Kimlik & Organizasyon ======================= */
+
+model Company {
+  id               String   @id @default(cuid())
+  name             String
+  vergiDairesi     String?
+  vergiNo          String?
+  tckn             String?
+  mersisNo         String?
+  address          String?
+  phone            String?
+  email            String?
+  defaultKdv       Int      @default(20)
+  eInvoiceSettings Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  users          User[]
+  dealers        Dealer[]
+  customers      Customer[]
+  suppliers      Supplier[]
+  categories     Category[]
+  products       Product[]
+  warehouses     Warehouse[]
+  priceLists     PriceList[]
+  stockMovements StockMovement[]
+  purchaseOrders PurchaseOrder[]
+  salesOrders    SalesOrder[]
+  invoices       Invoice[]
+  cashAccounts   CashAccount[]
+  payments       Payment[]
+  currentAccounts CurrentAccount[]
+  leads          CrmLead[]
+  opportunities  Opportunity[]
+  activities     Activity[]
+}
+
+model User {
+  id           String    @id @default(cuid())
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id])
+  email        String
+  passwordHash String
+  fullName     String
+  role         Role      @default(STAFF)
+  dealerId     String?
+  dealer       Dealer?   @relation(fields: [dealerId], references: [id])
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([companyId, email])
+  @@index([dealerId])
+}
+
+/* ============================== Bayi ============================== */
+
+model Dealer {
+  id           String    @id @default(cuid())
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id])
+  name         String
+  code         String
+  vergiDairesi String?
+  vergiNo      String?
+  phone        String?
+  email        String?
+  address      String?
+  priceListId  String?
+  priceList    PriceList? @relation(fields: [priceListId], references: [id])
+  discountRate Decimal?  @db.Decimal(5, 2)
+  creditLimit  Decimal   @default(0) @db.Decimal(18, 4)
+  isActive     Boolean   @default(true)
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  users       User[]
+  customers   Customer[]
+  salesOrders SalesOrder[]
+  invoices    Invoice[]
+
+  @@unique([companyId, code])
+}
+
+/* ============================== CRM ============================== */
+
+model Customer {
+  id               String      @id @default(cuid())
+  companyId        String
+  company          Company     @relation(fields: [companyId], references: [id])
+  type             MusteriTipi @default(INDIVIDUAL)
+  name             String
+  vergiDairesi     String?
+  vergiNo          String?
+  tckn             String?
+  email            String?
+  phone            String?
+  billingAddress   String?
+  shippingAddress  String?
+  defaultKdvExempt Boolean     @default(false)
+  dealerId         String?
+  dealer           Dealer?     @relation(fields: [dealerId], references: [id])
+  deletedAt        DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  contacts    Contact[]
+  salesOrders SalesOrder[]
+  invoices    Invoice[]
+
+  @@index([companyId])
+  @@index([dealerId])
+}
+
+model Contact {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name       String
+  title      String?
+  email      String?
+  phone      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model CrmLead {
+  id                  String     @id @default(cuid())
+  companyId           String
+  company             Company    @relation(fields: [companyId], references: [id])
+  name                String
+  company_name        String?
+  email               String?
+  phone               String?
+  source              String?
+  status              LeadDurumu @default(NEW)
+  ownerUserId         String?
+  estimatedValue      Decimal?   @db.Decimal(18, 4)
+  convertedCustomerId String?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  opportunities Opportunity[]
+
+  @@index([companyId, status])
+}
+
+model Opportunity {
+  id                String   @id @default(cuid())
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id])
+  leadId            String?
+  lead              CrmLead? @relation(fields: [leadId], references: [id])
+  customerId        String?
+  title             String
+  stage             String   @default("NEW")
+  amount            Decimal  @default(0) @db.Decimal(18, 4)
+  probability       Int      @default(0)
+  expectedCloseDate DateTime?
+  ownerUserId       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId, stage])
+}
+
+model Activity {
+  id          String       @id @default(cuid())
+  companyId   String
+  company     Company      @relation(fields: [companyId], references: [id])
+  type        AktiviteTipi @default(NOTE)
+  subject     String
+  body        String?
+  dueAt       DateTime?
+  completedAt DateTime?
+  ownerUserId String?
+  relatedType String? // LEAD | CUSTOMER | DEALER | OPPORTUNITY
+  relatedId   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([companyId, relatedType, relatedId])
+}
+
+/* ========================= Katalog & Stok ========================= */
+
+model Category {
+  id        String     @id @default(cuid())
+  companyId String
+  company   Company    @relation(fields: [companyId], references: [id])
+  name      String
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  products Product[]
+
+  @@index([companyId])
+}
+
+model Product {
+  id               String    @id @default(cuid())
+  companyId        String
+  company          Company   @relation(fields: [companyId], references: [id])
+  name             String
+  brand            String?
+  categoryId       String?
+  category         Category? @relation(fields: [categoryId], references: [id])
+  baseUnit         String    @default("adet")
+  kdvRate          Int       @default(20)
+  defaultCostPrice Decimal   @default(0) @db.Decimal(18, 4)
+  defaultSalePrice Decimal   @default(0) @db.Decimal(18, 4)
+  barcode          String?
+  description      String?
+  isActive         Boolean   @default(true)
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  variants ProductVariant[]
+
+  @@index([companyId])
+  @@index([categoryId])
+}
+
+model ProductVariant {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String
+  sku       String   @unique
+  barcode   String?
+  attributes Json?
+  costPrice Decimal? @db.Decimal(18, 4)
+  salePrice Decimal? @db.Decimal(18, 4)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockMovements   StockMovement[]
+  stockLevels      StockLevel[]
+  priceListItems   PriceListItem[]
+  purchaseLines    PurchaseOrderLine[]
+  salesLines       SalesOrderLine[]
+  invoiceLines     InvoiceLine[]
+}
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  name      String
+  address   String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockMovements StockMovement[]
+  stockLevels    StockLevel[]
+  purchaseOrders PurchaseOrder[]
+  salesOrders    SalesOrder[]
+}
+
+model StockMovement {
+  id              String          @id @default(cuid())
+  companyId       String
+  company         Company         @relation(fields: [companyId], references: [id])
+  variantId       String
+  variant         ProductVariant  @relation(fields: [variantId], references: [id])
+  warehouseId     String
+  warehouse       Warehouse       @relation(fields: [warehouseId], references: [id])
+  type            StokHareketTipi
+  quantity        Decimal         @db.Decimal(18, 4)
+  unitCost        Decimal?        @db.Decimal(18, 4)
+  refType         BelgeRefTipi?
+  refId           String?
+  note            String?
+  createdByUserId String?
+  occurredAt      DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+
+  @@index([companyId, variantId])
+  @@index([refType, refId])
+}
+
+/// Hız için stok bakiyesi önbelleği; doğruluk kaynağı StokHareket'tir.
+model StockLevel {
+  id          String         @id @default(cuid())
+  variantId   String
+  variant     ProductVariant @relation(fields: [variantId], references: [id])
+  warehouseId String
+  warehouse   Warehouse      @relation(fields: [warehouseId], references: [id])
+  quantity    Decimal        @default(0) @db.Decimal(18, 4)
+  reorderPoint Decimal?      @db.Decimal(18, 4)
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([variantId, warehouseId])
+}
+
+/* ========================= Fiyatlandırma ========================= */
+
+model PriceList {
+  id        String           @id @default(cuid())
+  companyId String
+  company   Company          @relation(fields: [companyId], references: [id])
+  name      String
+  type      FiyatListesiTipi @default(RETAIL)
+  currency  String           @default("TRY")
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  items   PriceListItem[]
+  dealers Dealer[]
+}
+
+model PriceListItem {
+  id          String         @id @default(cuid())
+  priceListId String
+  priceList   PriceList      @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  variantId   String
+  variant     ProductVariant @relation(fields: [variantId], references: [id])
+  price       Decimal        @db.Decimal(18, 4)
+  minQty      Decimal?       @db.Decimal(18, 4)
+
+  @@unique([priceListId, variantId])
+}
+
+/* =========================== Satınalma =========================== */
+
+model Supplier {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id])
+  name         String
+  vergiDairesi String?
+  vergiNo      String?
+  phone        String?
+  email        String?
+  address      String?
+  deletedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+}
+
+model PurchaseOrder {
+  id           String          @id @default(cuid())
+  companyId    String
+  company      Company         @relation(fields: [companyId], references: [id])
+  supplierId   String
+  supplier     Supplier        @relation(fields: [supplierId], references: [id])
+  warehouseId  String
+  warehouse    Warehouse       @relation(fields: [warehouseId], references: [id])
+  status       SatinalmaDurumu @default(DRAFT)
+  orderDate    DateTime        @default(now())
+  expectedDate DateTime?
+  currency     String          @default("TRY")
+  subtotal     Decimal         @default(0) @db.Decimal(18, 4)
+  kdvTotal     Decimal         @default(0) @db.Decimal(18, 4)
+  grandTotal   Decimal         @default(0) @db.Decimal(18, 4)
+  note         String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  lines PurchaseOrderLine[]
+
+  @@index([companyId, status])
+}
+
+model PurchaseOrderLine {
+  id              String         @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  variantId       String
+  variant         ProductVariant @relation(fields: [variantId], references: [id])
+  quantity        Decimal        @db.Decimal(18, 4)
+  unitCost        Decimal        @db.Decimal(18, 4)
+  kdvRate         Int            @default(20)
+  lineTotal       Decimal        @db.Decimal(18, 4)
+}
+
+/* ========================= Satış & Fatura ========================= */
+
+model SalesOrder {
+  id            String      @id @default(cuid())
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id])
+  customerId    String?
+  customer      Customer?   @relation(fields: [customerId], references: [id])
+  dealerId      String?
+  dealer        Dealer?     @relation(fields: [dealerId], references: [id])
+  warehouseId   String
+  warehouse     Warehouse   @relation(fields: [warehouseId], references: [id])
+  channel       SatisKanali @default(POS)
+  status        SatisDurumu @default(DRAFT)
+  orderDate     DateTime    @default(now())
+  currency      String      @default("TRY")
+  subtotal      Decimal     @default(0) @db.Decimal(18, 4)
+  discountTotal Decimal     @default(0) @db.Decimal(18, 4)
+  kdvTotal      Decimal     @default(0) @db.Decimal(18, 4)
+  grandTotal    Decimal     @default(0) @db.Decimal(18, 4)
+  note          String?
+  invoiceId     String?     @unique
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  lines   SalesOrderLine[]
+  invoice Invoice?         @relation(fields: [invoiceId], references: [id])
+
+  @@index([companyId, status])
+  @@index([dealerId])
+}
+
+model SalesOrderLine {
+  id                String         @id @default(cuid())
+  salesOrderId      String
+  salesOrder        SalesOrder     @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  variantId         String
+  variant           ProductVariant @relation(fields: [variantId], references: [id])
+  quantity          Decimal        @db.Decimal(18, 4)
+  unitPrice         Decimal        @db.Decimal(18, 4)
+  costPriceSnapshot Decimal        @default(0) @db.Decimal(18, 4)
+  kdvRate           Int            @default(20)
+  discountRate      Decimal?       @db.Decimal(5, 2)
+  lineTotal         Decimal        @db.Decimal(18, 4)
+}
+
+model Invoice {
+  id            String           @id @default(cuid())
+  companyId     String
+  company       Company          @relation(fields: [companyId], references: [id])
+  type          FaturaTipi       @default(SATIS)
+  documentType  EFaturaBelgeTipi @default(EARSIV)
+  profile       EFaturaProfili   @default(EARSIVFATURA)
+  customerId    String?
+  customer      Customer?        @relation(fields: [customerId], references: [id])
+  dealerId      String?
+  dealer        Dealer?          @relation(fields: [dealerId], references: [id])
+  invoiceNumber String?          @unique
+  uuid          String?          @unique // ETTN
+  issueDate     DateTime         @default(now())
+  issueTime     String?
+  currency      String           @default("TRY")
+
+  // Taraf bilgisi snapshot'ları (UBL-TR uyumu için)
+  sellerSnapshot Json?
+  buyerSnapshot  Json?
+
+  // Toplamlar
+  subtotal     Decimal @default(0) @db.Decimal(18, 4)
+  discountTotal Decimal @default(0) @db.Decimal(18, 4)
+  kdvBreakdown Json? // [{ oran, matrah, kdv }]
+  kdvTotal     Decimal @default(0) @db.Decimal(18, 4)
+  grandTotal   Decimal @default(0) @db.Decimal(18, 4)
+
+  // e-Fatura sağlayıcı durumu
+  eInvoiceStatus     EFaturaDurumu @default(NONE)
+  eInvoiceProvider   String?
+  providerDocumentId String?
+  gibStatusCode      String?
+  gibStatusDescription String?
+  sentAt             DateTime?
+  responseRaw        Json?
+  ublXml             String?
+  pdfUrl             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines      InvoiceLine[]
+  salesOrder SalesOrder?
+
+  @@index([companyId, eInvoiceStatus])
+}
+
+model InvoiceLine {
+  id           String          @id @default(cuid())
+  invoiceId    String
+  invoice      Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  variantId    String?
+  variant      ProductVariant? @relation(fields: [variantId], references: [id])
+  description  String
+  quantity     Decimal         @db.Decimal(18, 4)
+  unit         String          @default("adet")
+  unitPrice    Decimal         @db.Decimal(18, 4)
+  kdvRate      Int             @default(20)
+  kdvAmount    Decimal         @db.Decimal(18, 4)
+  discountRate Decimal?        @db.Decimal(5, 2)
+  lineSubtotal Decimal         @db.Decimal(18, 4)
+  lineTotal    Decimal         @db.Decimal(18, 4)
+  costSnapshot Decimal         @default(0) @db.Decimal(18, 4)
+}
+
+/* ===================== Cari / Kasa / Ödeme ===================== */
+
+/// İşaret kuralı: balance > 0 => taraf bize borçlu (alacağımız);
+/// balance < 0 => biz tarafa borçluyuz.
+model CurrentAccount {
+  id        String        @id @default(cuid())
+  companyId String
+  company   Company       @relation(fields: [companyId], references: [id])
+  ownerType CariSahipTipi
+  ownerId   String
+  currency  String        @default("TRY")
+  balance   Decimal       @default(0) @db.Decimal(18, 4)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  transactions CurrentAccountTransaction[]
+
+  @@unique([ownerType, ownerId, currency])
+  @@index([companyId])
+}
+
+model CurrentAccountTransaction {
+  id               String         @id @default(cuid())
+  currentAccountId String
+  currentAccount   CurrentAccount @relation(fields: [currentAccountId], references: [id], onDelete: Cascade)
+  direction        CariYon
+  amount           Decimal        @db.Decimal(18, 4)
+  balanceAfter     Decimal        @db.Decimal(18, 4)
+  refType          CariRefTipi    @default(MANUAL)
+  refId            String?
+  description      String?
+  occurredAt       DateTime       @default(now())
+  createdAt        DateTime       @default(now())
+
+  @@index([currentAccountId, occurredAt])
+}
+
+model CashAccount {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  name      String
+  type      KasaTipi @default(CASH)
+  iban      String?
+  currency  String   @default("TRY")
+  balance   Decimal  @default(0) @db.Decimal(18, 4)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments Payment[]
+}
+
+model Payment {
+  id               String       @id @default(cuid())
+  companyId        String
+  company          Company      @relation(fields: [companyId], references: [id])
+  direction        OdemeYonu
+  method           OdemeYontemi @default(CASH)
+  amount           Decimal      @db.Decimal(18, 4)
+  currency         String       @default("TRY")
+  cashAccountId    String
+  cashAccount      CashAccount  @relation(fields: [cashAccountId], references: [id])
+  currentAccountId String?
+  invoiceId        String?
+  note             String?
+  occurredAt       DateTime     @default(now())
+  createdAt        DateTime     @default(now())
+
+  @@index([companyId, occurredAt])
+}
